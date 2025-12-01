@@ -56,47 +56,128 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   final GlobalKey _childKey = GlobalKey();
 
   @override
-Widget build(BuildContext context) {
-  super.build(context);
-  return Container(
-    width: 280,
-    height: 220,
-    child: Column(
+  Widget build(BuildContext context) {
+    super.build(context);
+    final isIncomingOnly = bind.isIncomingOnly();
+    return _buildBlock(
+        child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        buildIDBoard(context),
-        SizedBox(height: 10),
-        buildPasswordBoard(context),
-        Spacer(),
-        OnlineStatusWidget(
-          onSvcStatusChanged: () {
-            // 保留状态变化回调
-          },
-        ).marginOnly(bottom: 6, right: 6),
+        buildLeftPane(context),
+        if (!isIncomingOnly) const VerticalDivider(width: 1),
+        if (!isIncomingOnly) Expanded(child: buildRightPane(context)),
       ],
-    ),
-  );
-}
+    ));
+  }
 
   Widget _buildBlock({required Widget child}) {
     return buildRemoteBlock(
         block: _block, mask: true, use: canBeBlocked, child: child);
   }
 
- Widget buildLeftPane(BuildContext context) {
-  return Column(
-    children: [
-      buildIDBoard(context),
-      SizedBox(height: 10),
-      buildPasswordBoard(context),
-      Spacer(),
-      OnlineStatusWidget(
-        onSvcStatusChanged: () {
-          // 保留状态变化回调
+  Widget buildLeftPane(BuildContext context) {
+    final isIncomingOnly = bind.isIncomingOnly();
+    final isOutgoingOnly = bind.isOutgoingOnly();
+    final children = <Widget>[
+      if (!isOutgoingOnly) buildPresetPasswordWarning(),
+      if (bind.isCustomClient())
+        Align(
+          alignment: Alignment.center,
+          child: loadPowered(context),
+        ),
+      Align(
+        alignment: Alignment.center,
+        child: loadLogo(),
+      ),
+      buildTip(context),
+      if (!isOutgoingOnly) buildIDBoard(context),
+      if (!isOutgoingOnly) buildPasswordBoard(context),
+      FutureBuilder<Widget>(
+        future: Future.value(
+            Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
+        builder: (_, data) {
+          if (data.hasData) {
+            if (isIncomingOnly) {
+              if (isInHomePage()) {
+                Future.delayed(Duration(milliseconds: 300), () {
+                  _updateWindowSize();
+                });
+              }
+            }
+            return data.data!;
+          } else {
+            return const Offstage();
+          }
         },
-      ).marginOnly(bottom: 6, right: 6),
-    ],
-  );
-}
+      ),
+      buildPluginEntry(),
+    ];
+    if (isIncomingOnly) {
+      children.addAll([
+        Divider(),
+        OnlineStatusWidget(
+          onSvcStatusChanged: () {
+            if (isInHomePage()) {
+              Future.delayed(Duration(milliseconds: 300), () {
+                _updateWindowSize();
+              });
+            }
+          },
+        ).marginOnly(bottom: 6, right: 6)
+      ]);
+    }
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    return ChangeNotifierProvider.value(
+      value: gFFI.serverModel,
+      child: Container(
+        width: isIncomingOnly ? 280.0 : 200.0,
+        color: Theme.of(context).colorScheme.background,
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                SingleChildScrollView(
+                  controller: _leftPaneScrollController,
+                  child: Column(
+                    key: _childKey,
+                    children: children,
+                  ),
+                ),
+                Expanded(child: Container())
+              ],
+            ),
+            if (isOutgoingOnly)
+              Positioned(
+                bottom: 6,
+                left: 12,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: InkWell(
+                    child: Obx(
+                      () => Icon(
+                        Icons.settings,
+                        color: _editHover.value
+                            ? textColor
+                            : Colors.grey.withOpacity(0.5),
+                        size: 22,
+                      ),
+                    ),
+                    onTap: () => {
+                      if (DesktopSettingPage.tabKeys.isNotEmpty)
+                        {
+                          DesktopSettingPage.switch2page(
+                              DesktopSettingPage.tabKeys[0])
+                        }
+                    },
+                    onHover: (value) => _editHover.value = value,
+                  ),
+                ),
+              )
+          ],
+        ),
+      ),
+    );
+  }
 
   buildRightPane(BuildContext context) {
     return Container(
@@ -140,7 +221,7 @@ Widget build(BuildContext context) {
                                   ?.color
                                   ?.withOpacity(0.5)),
                         ).marginOnly(top: 5),
-                        buildPopupMenu(context) // 这里调用的就是三条杠按钮的构建方法
+                        buildPopupMenu(context)
                       ],
                     ),
                   ),
@@ -173,12 +254,28 @@ Widget build(BuildContext context) {
     );
   }
 
-  /// 隐藏顶部三条杠设置按钮：直接返回空容器，不渲染任何内容
   Widget buildPopupMenu(BuildContext context) {
-    // 原实现可能是 PopupMenuButton（三条杠），现在返回空容器隐藏
-    return Container(
-      width: 0,
-      height: 0,
+    final textColor = Theme.of(context).textTheme.titleLarge?.color;
+    RxBool hover = false.obs;
+    return InkWell(
+      onTap: DesktopTabPage.onAddSetting,
+      child: Tooltip(
+        message: translate('Settings'),
+        child: Obx(
+          () => CircleAvatar(
+            radius: 15,
+            backgroundColor: hover.value
+                ? Theme.of(context).scaffoldBackgroundColor
+                : Theme.of(context).colorScheme.background,
+            child: Icon(
+              Icons.more_vert_outlined,
+              size: 20,
+              color: hover.value ? textColor : textColor?.withOpacity(0.5),
+            ),
+          ),
+        ),
+      ),
+      onHover: (value) => hover.value = value,
     );
   }
 
@@ -739,15 +836,6 @@ Widget build(BuildContext context) {
         _updateWindowSize();
       });
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-  windowManager.setSize(Size(300, 220));
-});
-
-if (bind.isIncomingOnly()) {
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    _updateWindowSize();
-  });
-}
     WidgetsBinding.instance.addObserver(this);
   }
 
